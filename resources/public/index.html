@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Crossref Event Data Points</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+      body {
+        background-color: #000000;
+        color: white;
+        margin: 0px;
+        font-family: Monospace;
+        font-size:20px;
+        text-align: center;
+        font-weight: bold;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="form">
+      <label>Source <select id="source">
+                      <option>crossref</option>
+                      <option>datacite</option>
+                      <option>hypothesis</option>
+                      <option>newsfeed</option>
+                      <option>reddit</option>
+                      <option>reddit-links</option>
+                      <option>stackexchange</option>
+                      <option>twitter</option>
+                      <option>web</option>
+                      <option>wikipedia</option>
+                      <option>wordpressdotcom</option></select></label>
+      <label>Start <input type="text" id="start" value="2017-01-01"></label>
+      <label>End <input type="text" id="end"  value="2017-06-01"></label>
+      <button>Go</button>
+    </form>
+
+    <div id="loading" style="display: none;">
+      <!-- Message is dynamic. -->
+      <p id="loadingMessage"></p>
+      <img src="axes.png">
+      <p>Keyboard:<br>[space] - Subject vs Object<br>s - Subject vs Time<br>o - Object vs Time<br>, - less fog<br>. - more fog</p>
+      <p>If you're still reading, this may take a minute or two to load.</p>
+    </div>
+    
+    <div id="container"></div>
+    <script src="three.js"></script>
+    <script>
+      var eventPoints = {"subj-properties": [], "obj-properties": [], "coords": []};
+
+      var container;
+      var camera;
+      var scene;
+      var renderer;
+      var particles;
+      var legends;
+      var pointsGeometry;
+      var legendGeometry;
+      var origin;
+      var materials = [];
+      var parameters;
+      var i;
+      var h;
+      var color;
+      var size;
+      var mouseX = 0;
+      var mouseY = 0;
+
+      var rotationTargetX = 0;
+      var rotationTargetY = 0;
+
+      var windowHalfX = window.innerWidth / 2;
+      var windowHalfY = window.innerHeight / 2;
+      var WIDTH = 1500;
+      var HEIGHT = (windowHalfY / windowHalfX) * WIDTH;
+      var DEPTH = 1000;
+
+      // Normalize points in place to coords fitting box, centered around (0,0,0).
+      // xLegend and yLegend are arrays of [name, value]
+      function normalizePoints(points, xLegend, yLegend, xWidth, yWidth, zWidth) {
+        
+        var xMin = points[0];
+        var yMin = points[2];
+        var zMin = points[4];
+        var xMax = points[0];
+        var yMax = points[2];
+        var zMax = points[4];
+
+        for (var i=0; i < points.length; i+=5) {
+          xMin = Math.min(xMin, points[i+0]);
+          yMin = Math.min(yMin, points[i+2]);
+          zMin = Math.min(zMin, points[i+4]);
+          xMax = Math.max(xMax, points[i+0]);
+          yMax = Math.max(yMax, points[i+2]);
+          zMax = Math.max(zMax, points[i+4]);
+        }
+
+        for (var i=0; i < xLegend.length; i++) {
+          xMin = Math.min(xMin, xLegend[i][1]);
+          xMax = Math.max(xMax, xLegend[i][1]);
+        }
+
+        for (var i=0; i < yLegend.length; i++) {
+          yMin = Math.min(yMin, yLegend[i][1]);
+          yMax = Math.max(yMax, yLegend[i][1]);
+        }
+        
+        var xRange = xMax - xMin;
+        var yRange = yMax - yMin;
+        var zRange = zMax - zMin;
+        xScale = xWidth / xRange;
+        yScale = yWidth / yRange;
+        zScale = zWidth / zRange;
+
+        var halfXwidth = xWidth / 2;
+        var halfYwidth = yWidth / 2;
+        var halfZwidth = zWidth / 2;
+
+        for (var i=0; i < points.length; i+=5) {
+          points[i+0] = (points[i+0] - xMin) * xScale - halfXwidth;
+          points[i+1] = (points[i+1] - xMin) * xScale - halfXwidth;
+
+          points[i+2] = (points[i+2] - yMin) * yScale - halfYwidth;
+          points[i+3] = (points[i+3] - yMin) * yScale - halfYwidth;
+
+          points[i+4] = (points[i+4] - zMin) * zScale - halfZwidth;
+        }
+
+        for (var i=0; i < xLegend.length; i++) {
+          xLegend[i][1] = (xLegend[i][1] - xMin) * xScale - halfXwidth;
+        }
+
+        for (var i=0; i < yLegend.length; i++) {
+          yLegend[i][1] = (yLegend[i][1] - yMin) * yScale - halfYwidth;
+        } 
+      }
+
+      function init() {
+        // Default last 30 days.
+        var date = new Date();
+        document.getElementById("end").value = date.toISOString().substring(0,10);
+        date.setDate(date.getDate() - 30);
+        document.getElementById("start").value = date.toISOString().substring(0,10);
+
+        container = document.getElementById("container");
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+        camera.position.z = DEPTH * 1.2;
+
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.0007);
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(renderer.domElement);
+
+        document.addEventListener('mousemove', onDocumentMouseMove, false);
+        document.addEventListener('touchstart', onDocumentTouchStart, false);
+        document.addEventListener('touchmove', onDocumentTouchMove, false);
+        window.addEventListener('keydown', onKeyDown, false);
+        window.addEventListener('resize', onWindowResize, false);
+      }
+
+      function reInit() {
+        if (particles) {
+          scene.remove(particles);  
+        }
+        
+        if (legends) {
+          scene.remove(legends);  
+        }
+
+        var loading = document.getElementById("loading");
+        loading.style.display = "none";
+
+        container.style.display = "block";
+
+        // Normalize data to the box.
+        var coords = eventPoints.coords;
+        var xLegend = eventPoints["subj-properties"];
+        var yLegend = eventPoints["obj-properties"];
+        normalizePoints(coords, xLegend, yLegend, WIDTH, HEIGHT, DEPTH);
+
+        // Add points.
+        var colours = [];
+        pointsGeometry = new THREE.Geometry();
+        for (i=0; i < coords.length; i+=5) {
+          var vertex = new THREE.Vector3();
+          vertex.x = coords[i+0];
+          vertex.y = coords[i+2];
+          vertex.z = coords[i+4];
+          pointsGeometry.vertices.push(vertex);
+          colours[i/5] = new THREE.Color();
+          // Set colour by point location.
+          colours[i/5].setRGB(((coords[i+0]+WIDTH/2) / WIDTH * 4) ,
+                              ((coords[i+2]+HEIGHT/2) / HEIGHT * 4),
+                              ((coords[i+4]+HEIGHT/2) / DEPTH * 4));
+
+          // colours[i/5].setRGB(((coords[i+1]+WIDTH/2) / WIDTH * 4) ,
+          //                     ((coords[i+3]+HEIGHT/2) / HEIGHT * 4),
+          //                     ((coords[i+4]+HEIGHT/2) / DEPTH * 4));
+        }
+
+        pointsGeometry.colors = colours;
+        materials = new THREE.PointsMaterial({size: 2, vertexColors: THREE.VertexColors});
+        materials.color.setHSL(1.0, 0.2, 0.7);
+        particles = new THREE.Points(pointsGeometry, materials);
+        scene.add(particles);
+
+        // Add Legend.
+        legendGeometry = new THREE.Geometry();
+        legendGeometry.vertices.push(
+          new THREE.Vector3(-WIDTH/2,-HEIGHT/2,-DEPTH/2),
+          new THREE.Vector3(WIDTH/2,-HEIGHT/2,-DEPTH/2),
+          new THREE.Vector3(-WIDTH/2,HEIGHT/2,-DEPTH/2),
+          new THREE.Vector3(WIDTH/2,HEIGHT/2,-DEPTH/2),
+          new THREE.Vector3(-WIDTH/2,-HEIGHT/2,DEPTH/2),
+          new THREE.Vector3(WIDTH/2,-HEIGHT/2,DEPTH/2),
+          new THREE.Vector3(-WIDTH/2,HEIGHT/2,DEPTH/2),
+          new THREE.Vector3(WIDTH/2,HEIGHT/2,DEPTH/2));
+
+        for (i=0; i < xLegend.length; i++) {
+          var point = new THREE.Vector3(xLegend[i][1],-HEIGHT/2,DEPTH/2);
+          legendGeometry.vertices.push(point)
+        }
+
+        for (i=0; i < yLegend.length; i++) {
+          var point = new THREE.Vector3(-WIDTH/2,yLegend[i][1],DEPTH/2);
+          legendGeometry.vertices.push(point)
+        }
+        
+        legendMaterial = new THREE.PointsMaterial({size: 5});
+        legends = new THREE.Points(legendGeometry, legendMaterial);
+        scene.add(legends);
+
+        // Show origin.
+        origin = new THREE.AxisHelper(WIDTH/2);
+        scene.add(origin);
+      }
+
+      // Swing round to three views.
+      function viewSubjObj() {
+        rotationTargetX = 0;
+        rotationTargetY = 0;
+      }
+
+      function viewObjTime() {
+        rotationTargetX = 0;
+        rotationTargetY = Math.PI / 2;
+      }
+
+      function viewSubjTime() {
+        rotationTargetX = Math.PI / 2;
+        rotationTargetY = 0;
+      }
+
+      function onKeyDown(event) {
+        switch (event.key) {
+          // Space also scrolls page. Stop that.
+          case " ": viewSubjObj(); event.preventDefault(); break;
+          case "s": viewSubjTime(); break;
+          case "o": viewObjTime(); break;
+          case ",": scene.fog.density -= 0.0001; break;
+          case ".": scene.fog.density += 0.0001; break;
+        } 
+      }
+
+      function onWindowResize() {
+        windowHalfX = window.innerWidth / 2;
+        windowHalfY = window.innerHeight / 2;
+
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function onDocumentMouseMove(event) {
+        mouseX = event.clientX - windowHalfX;
+        mouseY = event.clientY - windowHalfY;
+      }
+
+      function onDocumentTouchStart(event) {
+        if (event.touches.length === 1) {
+          event.preventDefault();
+          mouseX = event.touches[ 0 ].pageX - windowHalfX;
+          mouseY = event.touches[ 0 ].pageY - windowHalfY;
+        }
+      }
+
+      function onDocumentTouchMove(event) {
+        if (event.touches.length === 1) {
+          event.preventDefault();
+          mouseX = event.touches[0].pageX - windowHalfX;
+          mouseY = event.touches[0].pageY - windowHalfY;
+        }
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        render();
+      }
+
+      function render() {
+        camera.position.x += (mouseX - camera.position.x) * 0.05;
+        camera.position.y += (-mouseY - camera.position.y) * 0.05;
+
+        particles.rotation.x += (rotationTargetX - particles.rotation.x) * 0.05;
+        particles.rotation.y += (rotationTargetY - particles.rotation.y) * 0.05;
+        legends.rotation.x = particles.rotation.x;
+        legends.rotation.y = particles.rotation.y;
+        origin.rotation.x = particles.rotation.x;
+        origin.rotation.y = particles.rotation.y;
+
+        camera.lookAt(scene.position);
+        renderer.render(scene, camera);
+      }
+
+      var form = document.getElementById("form");
+      var loadingMessage = document.getElementById("loadingMessage");
+      form.onsubmit = function fetch() {
+        var loading = document.getElementById("loading");
+        loading.style.display = "block";
+        container.style.display = "none";
+        loadingMessage.textContent = "Querying..."
+
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+                var result = JSON.parse(this.responseText);
+                eventPoints = result.message;
+                reInit();
+                animate();
+            }
+        };
+        xmlhttp.addEventListener("progress", function(event) {
+          if (event.loaded) {
+            loadingMessage.textContent = "Loaded " + event.loaded + " bytes...";
+          }
+        });
+
+        var start = document.getElementById("start").value
+        var end = document.getElementById("end").value
+        var source = document.getElementById("source").value
+        
+        xmlhttp.open("GET", "/events/" + source + "/" + start + "/" + end, true);
+        xmlhttp.send();
+
+        return false;
+      }
+
+      init();
+    </script>
+  </body>
+</html>
