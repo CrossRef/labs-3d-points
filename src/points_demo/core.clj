@@ -29,6 +29,10 @@
 
 (def db (delay (:db (mg/connect-via-uri (:mongodb-uri env)))))
 
+(defn hash2 [x] (hash (str x "-")))
+(defn hash3 [x] (hash (str x "--")))
+
+
 (defn host-or-prefix
   [url-str]
   (let [url (new java.net.URL url-str)
@@ -37,7 +41,10 @@
       (str (.getProtocol url) "://" host "/" (second (.split (.getPath url) "/")))
       (str (.getProtocol url) "://" host "/"))))
 
+
 (defn points-rank
+  "List of points as [subject-id, subject-property-id, object-id, object-property-id]
+   Also return list of properties."
   [source-id start-date-str end-date-str]
   (let [start (coerce/from-string start-date-str)
         end (coerce/from-string end-date-str)
@@ -81,6 +88,34 @@
         :obj-properties obj-properties
         :coords coords}))
 
+(defn points-connections
+  "Return pairs of coords of connected points as [x y z xx yy zz]
+   x is subject, y is subject-property (domain or doi prefix)"
+  [source-id start-date-str end-date-str]
+  (let [start (coerce/from-string start-date-str)
+        end (coerce/from-string end-date-str)
+        query {"_timestamp-date" {"$gt" start "$lt" end} "source_id" source-id}
+        result (mc/find-maps @db "events" query 
+                 {"subj_id" 1 "obj_id" 1 "_timestamp-date" 1})
+        
+        connections (mapcat #(vector
+                               (-> % :subj_id hash)
+                               (-> % :subj_id hash2)
+                               (-> % :subj_id hash3)
+                               (-> % :obj_id hash)
+                               (-> % :obj_id hash2)
+                               (-> % :obj_id hash3)) result)]
+    {:coords connections}))
+
+(defresource connections
+  [source start end]
+  :available-media-types ["application/json"]
+  :handle-ok (fn [ctx]
+               (let [results (points-connections source start end)]
+                {:status "ok"
+                 :message-type "event-coords"
+                 :message results})))
+
 (defresource events
   [source start end]
   :available-media-types ["application/json"]
@@ -91,7 +126,8 @@
                  :message results})))
 
 (defroutes app-routes
-  (GET "/events/:source/:start/:end" [source start end] (events source start end)))
+  (GET "/events/:source/:start/:end" [source start end] (events source start end))
+  (GET "/connections/:source/:start/:end" [source start end] (connections source start end)))
 
 (def app
   (-> app-routes

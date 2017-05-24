@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Crossref Event Data Points</title>
+    <title>Crossref Event Data Lines</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
     <style>
@@ -39,15 +39,15 @@
     <div id="loading" style="display: block;">
       <!-- Message is dynamic. -->
       <p id="loadingMessage">Select a source and date!</p>
-      <img src="axes.png">
-      <p>Keyboard:<br>[space] - Subject vs Object<br>s - Subject vs Time<br>o - Object vs Time<br>, - less fog<br>. - more fog</p>
+      <p>Axes are random.</p>
+      <p>Keyboard:<br> 1, 2, 3 - change angle <br> . - more fog</p>
       <p>If you're still reading this message after clicking 'go', the data may take a minute or two to load.</p>
     </div>
     
     <div id="container"></div>
     <script src="three.js"></script>
     <script>
-      var eventPoints = {"subj-properties": [], "obj-properties": [], "coords": []};
+      var eventPoints = {"coords": []};
 
       var container;
       var camera;
@@ -55,8 +55,10 @@
       var renderer;
       var particles;
       var legends;
+      var lines;
       var pointsGeometry;
       var legendGeometry;
+      var linesGeometry;
       var origin;
       var materials = [];
       var parameters;
@@ -78,32 +80,23 @@
 
       // Normalize points in place to coords fitting box, centered around (0,0,0).
       // xLegend and yLegend are arrays of [name, value]
-      function normalizePoints(points, xLegend, yLegend, xWidth, yWidth, zWidth) {
+      function normalizePoints(points, xWidth, yWidth, zWidth) {
         
         var xMin = points[0];
-        var yMin = points[2];
-        var zMin = points[4];
+        var yMin = points[1];
+        var zMin = points[2];
         var xMax = points[0];
-        var yMax = points[2];
-        var zMax = points[4];
+        var yMax = points[1];
+        var zMax = points[2];
 
-        for (var i=0; i < points.length; i+=5) {
+        // These are in pairs of xyz but we can iterate on each point.
+        for (var i=0; i < points.length; i+=3) {
           xMin = Math.min(xMin, points[i+0]);
-          yMin = Math.min(yMin, points[i+2]);
-          zMin = Math.min(zMin, points[i+4]);
+          yMin = Math.min(yMin, points[i+1]);
+          zMin = Math.min(zMin, points[i+2]);
           xMax = Math.max(xMax, points[i+0]);
-          yMax = Math.max(yMax, points[i+2]);
-          zMax = Math.max(zMax, points[i+4]);
-        }
-
-        for (var i=0; i < xLegend.length; i++) {
-          xMin = Math.min(xMin, xLegend[i][1]);
-          xMax = Math.max(xMax, xLegend[i][1]);
-        }
-
-        for (var i=0; i < yLegend.length; i++) {
-          yMin = Math.min(yMin, yLegend[i][1]);
-          yMax = Math.max(yMax, yLegend[i][1]);
+          yMax = Math.max(yMax, points[i+1]);
+          zMax = Math.max(zMax, points[i+2]);
         }
         
         var xRange = xMax - xMin;
@@ -117,23 +110,11 @@
         var halfYwidth = yWidth / 2;
         var halfZwidth = zWidth / 2;
 
-        for (var i=0; i < points.length; i+=5) {
+        for (var i=0; i < points.length; i+=3) {
           points[i+0] = (points[i+0] - xMin) * xScale - halfXwidth;
-          points[i+1] = (points[i+1] - xMin) * xScale - halfXwidth;
-
-          points[i+2] = (points[i+2] - yMin) * yScale - halfYwidth;
-          points[i+3] = (points[i+3] - yMin) * yScale - halfYwidth;
-
-          points[i+4] = (points[i+4] - zMin) * zScale - halfZwidth;
+          points[i+1] = (points[i+1] - yMin) * yScale - halfYwidth;
+          points[i+2] = (points[i+2] - zMin) * zScale - halfZwidth;
         }
-
-        for (var i=0; i < xLegend.length; i++) {
-          xLegend[i][1] = (xLegend[i][1] - xMin) * xScale - halfXwidth;
-        }
-
-        for (var i=0; i < yLegend.length; i++) {
-          yLegend[i][1] = (yLegend[i][1] - yMin) * yScale - halfYwidth;
-        } 
       }
 
       function init() {
@@ -172,6 +153,14 @@
           scene.remove(legends);  
         }
 
+        if (lines) {
+          scene.remove(lines);
+        }
+
+        if (origin) {
+          scene.remove(origin);
+        }
+
         var loading = document.getElementById("loading");
         loading.style.display = "none";
 
@@ -179,34 +168,45 @@
 
         // Normalize data to the box.
         var coords = eventPoints.coords;
-        var xLegend = eventPoints["subj-properties"];
-        var yLegend = eventPoints["obj-properties"];
-        normalizePoints(coords, xLegend, yLegend, WIDTH, HEIGHT, DEPTH);
+        normalizePoints(coords, WIDTH, HEIGHT, DEPTH);
 
         // Add points.
         var colours = [];
+        var lineColours = [];
         pointsGeometry = new THREE.Geometry();
-        for (i=0; i < coords.length; i+=5) {
+        linesGeometry = new THREE.Geometry();
+        for (i=0; i < coords.length; i+=3) {
           var vertex = new THREE.Vector3();
           vertex.x = coords[i+0];
-          vertex.y = coords[i+2];
-          vertex.z = coords[i+4];
+          vertex.y = coords[i+1];
+          vertex.z = coords[i+2];
           pointsGeometry.vertices.push(vertex);
-          colours[i/5] = new THREE.Color();
+          colours[i/3] = new THREE.Color();
           // Set colour by point location.
-          colours[i/5].setRGB(((coords[i+0]+WIDTH/2) / WIDTH * 4) ,
-                              ((coords[i+2]+HEIGHT/2) / HEIGHT * 4),
-                              ((coords[i+4]+HEIGHT/2) / DEPTH * 4));
-
-          // colours[i/5].setRGB(((coords[i+1]+WIDTH/2) / WIDTH * 4) ,
-          //                     ((coords[i+3]+HEIGHT/2) / HEIGHT * 4),
-          //                     ((coords[i+4]+HEIGHT/2) / DEPTH * 4));
+          colours[i/3].setRGB(((coords[i+0]+WIDTH/2) / WIDTH * 4) ,
+                              ((coords[i+1]+HEIGHT/2) / HEIGHT * 4),
+                              ((coords[i+2]+HEIGHT/2) / DEPTH * 4));
+        }
+        // todo skip duplicate
+         for (i=0; i < coords.length; i+=3) {
+          var vertex = new THREE.Vector3(coords[i+0], coords[i+1], coords[i+2]);
+          linesGeometry.vertices.push(vertex);
         }
 
+        material = new THREE.PointsMaterial({size: 5, vertexColors: THREE.VertexColors});
+        material.color.setHSL(1.0, 0.2, 0.7);
+
+        // lineMaterial = new THREE.PointsMaterial({size: 5, vertexColors: THREE.VertexColors});
+        // lineMaterial.color.setHSL(1.0, 0.2, 0.7);
+
+
+        linesGeometry.colors = colours;
+        lines = new THREE.LineSegments(linesGeometry, material);
+        scene.add(lines)
+          
         pointsGeometry.colors = colours;
-        materials = new THREE.PointsMaterial({size: 2, vertexColors: THREE.VertexColors});
-        materials.color.setHSL(1.0, 0.2, 0.7);
-        particles = new THREE.Points(pointsGeometry, materials);
+        
+        particles = new THREE.Points(pointsGeometry, material);
         scene.add(particles);
 
         // Add Legend.
@@ -221,16 +221,6 @@
           new THREE.Vector3(-WIDTH/2,HEIGHT/2,DEPTH/2),
           new THREE.Vector3(WIDTH/2,HEIGHT/2,DEPTH/2));
 
-        for (i=0; i < xLegend.length; i++) {
-          var point = new THREE.Vector3(xLegend[i][1],-HEIGHT/2,DEPTH/2);
-          legendGeometry.vertices.push(point)
-        }
-
-        for (i=0; i < yLegend.length; i++) {
-          var point = new THREE.Vector3(-WIDTH/2,yLegend[i][1],DEPTH/2);
-          legendGeometry.vertices.push(point)
-        }
-        
         legendMaterial = new THREE.PointsMaterial({size: 5});
         legends = new THREE.Points(legendGeometry, legendMaterial);
         scene.add(legends);
@@ -258,10 +248,11 @@
 
       function onKeyDown(event) {
         switch (event.key) {
-          // Space also scrolls page. Stop that.
+          
+          case "1": viewSubjObj(); break;
           case " ": viewSubjObj(); event.preventDefault(); break;
-          case "s": viewSubjTime(); break;
-          case "o": viewObjTime(); break;
+          case "2": viewSubjTime(); break;
+          case "3": viewObjTime(); break;
           case ",": scene.fog.density -= 0.0001; break;
           case ".": scene.fog.density += 0.0001; break;
         } 
@@ -285,8 +276,8 @@
       function onDocumentTouchStart(event) {
         if (event.touches.length === 1) {
           event.preventDefault();
-          mouseX = event.touches[ 0 ].pageX - windowHalfX;
-          mouseY = event.touches[ 0 ].pageY - windowHalfY;
+          mouseX = event.touches[0].pageX - windowHalfX;
+          mouseY = event.touches[0].pageY - windowHalfY;
         }
       }
 
@@ -309,10 +300,15 @@
 
         particles.rotation.x += (rotationTargetX - particles.rotation.x) * 0.05;
         particles.rotation.y += (rotationTargetY - particles.rotation.y) * 0.05;
+        
         legends.rotation.x = particles.rotation.x;
         legends.rotation.y = particles.rotation.y;
+        
         origin.rotation.x = particles.rotation.x;
         origin.rotation.y = particles.rotation.y;
+
+        lines.rotation.x = particles.rotation.x;
+        lines.rotation.y = particles.rotation.y;
 
         camera.lookAt(scene.position);
         renderer.render(scene, camera);
@@ -345,7 +341,7 @@
         var end = document.getElementById("end").value
         var source = document.getElementById("source").value
         
-        xmlhttp.open("GET", "/events/" + source + "/" + start + "/" + end, true);
+        xmlhttp.open("GET", "/connections/" + source + "/" + start + "/" + end, true);
         xmlhttp.send();
 
         return false;
