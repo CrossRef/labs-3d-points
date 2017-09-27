@@ -4,11 +4,10 @@
             [clj-time.coerce :as coerce]
             [clojure.data.json :as json]
             [clojure.tools.logging :as log]
-            [monger.core :as mg]
-            [monger.collection :as mc]
-            [monger.query :as q]
-            ; Not directly used, but converts clj-time dates in the background.
-            [monger.joda-time]
+            
+            [qbits.spandex.utils :as s-utils]
+            [qbits.spandex :as s]
+
             [clojure.data.json :as json]
             [clojure.java.io :as io]
 
@@ -23,15 +22,33 @@
             [liberator.representation :as representation]
             [ring.util.response :as ring-response])
 
-  (:import [org.bson.types ObjectId]
-           [com.mongodb DB WriteConcern])
+
   (:gen-class))
 
-(def db (delay (:db (mg/connect-via-uri (:mongodb-uri env)))))
+(def connection (delay
+  (s/client {:hosts [(:query-elastic-uri env)]})))
+
+
+(def index-name "event-data-query")
+(def type-name "event")
+(def max-size 10000)
+
 
 (defn hash2 [x] (hash (str x "-")))
 (defn hash3 [x] (hash (str x "--")))
 
+(defn search
+  [source-id page-size start end]
+  (let [body {:size page-size
+               :sort [{:timestamp "asc"} {:_uid "desc"}]
+               :query {:bool {:filter [{:term {:source  source-id}}
+                                       {:range {:timestamp {:gte (coerce/to-long start) :lte (coerce/to-long end)}}}]}}}
+        result (s/request @connection
+                {:url (str index-name "/" type-name "/_search")
+                 :method :POST
+                 :body body})
+        events (->> result :body :hits :hits (map (comp :event :_source)))]
+    events))
 
 (defn host-or-prefix
   [url-str]
@@ -48,9 +65,9 @@
   [source-id start-date-str end-date-str]
   (let [start (coerce/from-string start-date-str)
         end (coerce/from-string end-date-str)
-        query {"_timestamp-date" {"$gt" start "$lt" end} "source_id" source-id}
-        result (mc/find-maps @db "events" query 
-                 {"subj_id" 1 "obj_id" 1 "_timestamp-date" 1})
+
+        result (search source-id max-size start end)
+
         now (coerce/to-long (clj-time/now))
         distinct-subj-count (atom 0)
         
@@ -80,7 +97,7 @@
                                 (-> % :subj_id host-or-prefix subj-rank)
                                 (-> % :obj_id obj-rank)
                                 (-> % :obj_id host-or-prefix obj-rank)
-                                (- now (-> % :_timestamp-date coerce/to-long))) result)
+                                (- now (-> % :timestamp coerce/to-long))) result)
 
         subj-properties (vec (select-keys subj-rank subj-properties))
         obj-properties (vec (select-keys obj-rank obj-properties))]
@@ -94,9 +111,8 @@
   [source-id start-date-str end-date-str]
   (let [start (coerce/from-string start-date-str)
         end (coerce/from-string end-date-str)
-        query {"_timestamp-date" {"$gt" start "$lt" end} "source_id" source-id}
-        result (mc/find-maps @db "events" query 
-                 {"subj_id" 1 "obj_id" 1 "_timestamp-date" 1})
+
+        result (search source-id max-size start end)
         
         connections (mapcat #(vector
                                (-> % :subj_id hash)

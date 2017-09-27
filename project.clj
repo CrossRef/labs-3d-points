@@ -1,4 +1,4 @@
-(defproject points-demo "0.1.0-SNAPSHOT"
+(defproject points-demo "0.1.1"
   :description "Event Data Points Demo"
   :url "http://eventdata.crossref.org/"
   :license {:name "MIT License"
@@ -16,7 +16,8 @@
                  [org.apache.logging.log4j/log4j-core "2.6.2"]
                  [org.slf4j/slf4j-simple "1.7.21"]
                  [cheshire "5.7.0"]
-                 [com.novemberain/monger "3.1.0"]
+                 
+                 [cc.qbits/spandex "0.4.2"]
                  [compojure "1.5.1"]
                  [org.eclipse.jetty/jetty-server "9.4.0.M0"]
                  [liberator "0.14.1"]
