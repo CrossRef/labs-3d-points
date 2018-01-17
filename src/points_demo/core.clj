@@ -152,7 +152,7 @@
 
 
 (defn -main [& args]
-  (let [port (Integer/parseInt (:port env))]
+  (let [port (Integer/parseInt (:viz-demo-port env))]
     
     (log/info "Start server on " port)
     (server/run-server app {:port port})))
