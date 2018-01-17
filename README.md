@@ -6,8 +6,8 @@ Connects to a MongoDB database maintained by event-data-query.
 
 Config:
 
- - `PORT` - port to run web server
- - `MONGODB_URI` e.g. mongodb://127.0.0.1:27017/events
+ - `VIZ_DEMO_PORT` - port to run web server
+ - `QUERY_ELASTIC_URI` ElasticSearch URI
 
 To run:
 
