@@ -29,7 +29,7 @@
   (s/client {:hosts [(:query-elastic-uri env)]})))
 
 
-(def index-name "event-data-query")
+(def index-name (str (:query-deployment env) "standard"))
 (def type-name "event")
 (def max-size 10000)
 
@@ -152,7 +152,7 @@
 
 
 (defn -main [& args]
-  (let [port (Integer/parseInt (:port env))]
+  (let [port (Integer/parseInt (:viz-3d-port env))]
     
     (log/info "Start server on " port)
-    (server/run-server app {:port port})))
+    (server/run-server app {:viz-3d-port port})))
