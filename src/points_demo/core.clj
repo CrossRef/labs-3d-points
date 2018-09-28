@@ -155,4 +155,4 @@
   (let [port (Integer/parseInt (:viz-3d-port env))]
     
     (log/info "Start server on " port)
-    (server/run-server app {:viz-3d-port port})))
+    (server/run-server app {:port port})))
