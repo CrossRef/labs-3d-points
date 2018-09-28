@@ -40,7 +40,7 @@
 (defn search
   [source-id page-size start end]
   (let [body {:size page-size
-               :sort [{:timestamp "asc"} {:_uid "desc"}]
+               :sort [{:timestamp "asc"} {:id "desc"}]
                :query {:bool {:filter [{:term {:source  source-id}}
                                        {:range {:timestamp {:gte (coerce/to-long start) :lte (coerce/to-long end)}}}]}}}
         result (s/request @connection
