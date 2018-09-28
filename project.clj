@@ -1,4 +1,4 @@
-(defproject points-demo "0.1.2"
+(defproject points-demo "0.1.4"
   :description "Event Data Points Demo"
   :url "http://eventdata.crossref.org/"
   :license {:name "MIT License"
